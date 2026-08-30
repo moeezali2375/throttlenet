@@ -9,17 +9,15 @@ public final class TrafficShaper {
     private var socketRefreshTimer: Timer?
     private let queue = DispatchQueue(label: "com.throttlenet.trafficshaper", qos: .userInitiated)
     
+    /// Unified anchor registered in macOS /etc/pf.conf ("com.apple/*")
+    private let anchorName = "com.apple/throttlenet"
+    
     private init() {
         startSocketRefreshTimer()
     }
     
     deinit {
         socketRefreshTimer?.invalidate()
-    }
-    
-    /// Anchor prefix registered in macOS /etc/pf.conf ("com.apple/*")
-    private func anchorName(for pid: pid_t) -> String {
-        return "com.apple/throttlenet_\(pid)"
     }
     
     /// Apply or update bandwidth limits for a process.
@@ -32,50 +30,6 @@ public final class TrafficShaper {
         let downPipeId = 1000 + Int(pid % 25000) * 2
         let upPipeId = downPipeId + 1
         
-        var commands: [String] = []
-        
-        // 1. Configure dummynet pipes
-        if downloadLimitKBps > 0 {
-            commands.append("/usr/sbin/dnctl pipe \(downPipeId) config bw \(Int(downloadLimitKBps))Kbyte/s")
-        } else {
-            commands.append("/usr/sbin/dnctl pipe delete \(downPipeId) 2>/dev/null || true")
-        }
-        
-        if uploadLimitKBps > 0 {
-            commands.append("/usr/sbin/dnctl pipe \(upPipeId) config bw \(Int(uploadLimitKBps))Kbyte/s")
-        } else {
-            commands.append("/usr/sbin/dnctl pipe delete \(upPipeId) 2>/dev/null || true")
-        }
-        
-        // 2. Fetch active ports for this process
-        let ports = SocketTracker.shared.getLocalPorts(for: pid)
-        let anchor = anchorName(for: pid)
-        
-        // 3. Build PF anchor rules inside com.apple/* wildcard
-        if !ports.isEmpty {
-            let portList = ports.map { String($0) }.joined(separator: " ")
-            var pfRules: [String] = []
-            
-            if downloadLimitKBps > 0 {
-                pfRules.append("dummynet in quick proto tcp from any to any port { \(portList) } pipe \(downPipeId)")
-                pfRules.append("dummynet in quick proto udp from any to any port { \(portList) } pipe \(downPipeId)")
-            }
-            if uploadLimitKBps > 0 {
-                pfRules.append("dummynet out quick proto tcp from any port { \(portList) } to any pipe \(upPipeId)")
-                pfRules.append("dummynet out quick proto udp from any port { \(portList) } to any pipe \(upPipeId)")
-            }
-            
-            if !pfRules.isEmpty {
-                let ruleString = pfRules.joined(separator: "\\n")
-                commands.append("printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchor) -f -")
-            }
-        }
-        
-        // 4. Ensure PF is enabled
-        commands.append("/sbin/pfctl -e 2>/dev/null || true")
-        
-        try await PrivilegeManager.shared.executePrivileged(commands: commands)
-        
         let config = ThrottleConfig(
             pid: pid,
             processName: processName,
@@ -87,46 +41,74 @@ public final class TrafficShaper {
             lastUpdated: Date()
         )
         
+        let ports = SocketTracker.shared.getLocalPorts(for: pid)
+        
         queue.sync {
             activeThrottles[pid] = config
             lastConfiguredPorts[pid] = ports
         }
+        
+        try await rebuildAllRulesAndPipes()
     }
     
-    /// Remove bandwidth limits for a process.
+    /// Remove bandwidth limits for a process and immediately reset its network state.
     public func removeThrottle(for pid: pid_t) async throws {
-        guard let config = queue.sync(execute: { activeThrottles[pid] }) else { return }
-        let anchor = anchorName(for: pid)
+        let (removedConfig, removedPorts) = queue.sync { () -> (ThrottleConfig?, Set<UInt16>?) in
+            let c = activeThrottles.removeValue(forKey: pid)
+            let p = lastConfiguredPorts.removeValue(forKey: pid)
+            return (c, p)
+        }
         
+        guard removedConfig != nil else { return }
+        
+        // Delete dnctl pipes for this pid
         var commands: [String] = []
-        
-        // Flush pf anchor for this pid
-        commands.append("/sbin/pfctl -a \(anchor) -F all 2>/dev/null || true")
-        
-        // Delete dnctl pipes
-        if let downPipe = config.downloadPipeId {
+        if let downPipe = removedConfig?.downloadPipeId {
             commands.append("/usr/sbin/dnctl pipe delete \(downPipe) 2>/dev/null || true")
         }
-        if let upPipe = config.uploadPipeId {
+        if let upPipe = removedConfig?.uploadPipeId {
             commands.append("/usr/sbin/dnctl pipe delete \(upPipe) 2>/dev/null || true")
         }
+        
+        // Kill state entries for the unthrottled ports so active connections immediately burst to full speed
+        if let ports = removedPorts, !ports.isEmpty {
+            for port in ports {
+                commands.append("/sbin/pfctl -k 0.0.0.0/0 -k 0.0.0.0/0:port=\(port) 2>/dev/null || true")
+            }
+        }
+        
+        let remaining = queue.sync { activeThrottles }
+        if remaining.isEmpty {
+            commands.append("/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true")
+            commands.append("/usr/sbin/dnctl -q flush 2>/dev/null || true")
+            commands.append("/sbin/pfctl -F states 2>/dev/null || true")
+            try await PrivilegeManager.shared.executePrivileged(commands: commands)
+        } else {
+            try await PrivilegeManager.shared.executePrivileged(commands: commands)
+            try await rebuildAllRulesAndPipes()
+        }
+    }
+    
+    /// Resets all active throttles and flushes all dummynet pipes and pf anchors/states.
+    public func resetAll() async throws {
+        let commands = [
+            "/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true",
+            "/usr/sbin/dnctl -q flush 2>/dev/null || true",
+            "/sbin/pfctl -F states 2>/dev/null || true"
+        ]
         
         try await PrivilegeManager.shared.executePrivileged(commands: commands)
         
         queue.sync {
-            _ = activeThrottles.removeValue(forKey: pid)
-            _ = lastConfiguredPorts.removeValue(forKey: pid)
+            activeThrottles.removeAll()
+            lastConfiguredPorts.removeAll()
         }
     }
     
-    /// Resets all active throttles and clears all dummynet pipes and pf anchors.
-    public func resetAll() async throws {
-        let commands = [
-            "/sbin/pfctl -a 'com.apple/throttlenet*' -F all 2>/dev/null || true",
-            "/usr/sbin/dnctl -q flush 2>/dev/null || true"
-        ]
-        
-        try await PrivilegeManager.shared.executePrivileged(commands: commands)
+    /// Synchronously resets all rules (used during app exit).
+    public func resetAllSync() {
+        let command = "/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true; /usr/sbin/dnctl -q flush 2>/dev/null || true; /sbin/pfctl -F states 2>/dev/null || true"
+        PrivilegeManager.shared.executePrivilegedSync(command: command)
         
         queue.sync {
             activeThrottles.removeAll()
@@ -144,50 +126,93 @@ public final class TrafficShaper {
         return queue.sync { Array(activeThrottles.values) }
     }
     
+    /// Re-evaluates and writes all active dummynet pipes and packet filter rules in one atomic pass.
+    private func rebuildAllRulesAndPipes() async throws {
+        let throttles = queue.sync { activeThrottles }
+        
+        if throttles.isEmpty {
+            let commands = [
+                "/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true",
+                "/usr/sbin/dnctl -q flush 2>/dev/null || true",
+                "/sbin/pfctl -F states 2>/dev/null || true"
+            ]
+            try await PrivilegeManager.shared.executePrivileged(commands: commands)
+            return
+        }
+        
+        var commands: [String] = []
+        var allPfRules: [String] = []
+        
+        for (pid, config) in throttles {
+            guard config.isEnabled else { continue }
+            
+            // 1. Configure pipes
+            if let downPipe = config.downloadPipeId, config.downloadLimitKBps > 0 {
+                commands.append("/usr/sbin/dnctl pipe \(downPipe) config bw \(Int(config.downloadLimitKBps))Kbyte/s")
+            }
+            if let upPipe = config.uploadPipeId, config.uploadLimitKBps > 0 {
+                commands.append("/usr/sbin/dnctl pipe \(upPipe) config bw \(Int(config.uploadLimitKBps))Kbyte/s")
+            }
+            
+            // 2. Resolve ports
+            let ports = SocketTracker.shared.getLocalPorts(for: pid)
+            if !ports.isEmpty {
+                let portList = ports.map { String($0) }.joined(separator: " ")
+                if let downPipe = config.downloadPipeId, config.downloadLimitKBps > 0 {
+                    allPfRules.append("dummynet in quick proto tcp from any to any port { \(portList) } pipe \(downPipe)")
+                    allPfRules.append("dummynet in quick proto udp from any to any port { \(portList) } pipe \(downPipe)")
+                }
+                if let upPipe = config.uploadPipeId, config.uploadLimitKBps > 0 {
+                    allPfRules.append("dummynet out quick proto tcp from any port { \(portList) } to any pipe \(upPipe)")
+                    allPfRules.append("dummynet out quick proto udp from any port { \(portList) } to any pipe \(upPipe)")
+                }
+            }
+        }
+        
+        // 3. Load rules into anchor
+        if !allPfRules.isEmpty {
+            let ruleString = allPfRules.joined(separator: "\\n")
+            commands.append("printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchorName) -f -")
+        } else {
+            commands.append("/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true")
+        }
+        
+        commands.append("/sbin/pfctl -e 2>/dev/null || true")
+        
+        try await PrivilegeManager.shared.executePrivileged(commands: commands)
+    }
+    
     private func startSocketRefreshTimer() {
         socketRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.refreshActiveSockets()
         }
     }
     
-    /// Periodically checks active throttles to update PF rules if the process opened new ports.
+    /// Periodically checks active throttles to update PF rules if any process opened new ports.
     private func refreshActiveSockets() {
         let (currentThrottles, currentLastPorts) = queue.sync { (self.activeThrottles, self.lastConfiguredPorts) }
         guard !currentThrottles.isEmpty else { return }
         
         Task {
+            var hasPortChanges = false
+            
             for (pid, config) in currentThrottles {
                 guard config.isEnabled else { continue }
                 let ports = SocketTracker.shared.getLocalPorts(for: pid)
                 guard !ports.isEmpty else { continue }
                 
-                // If ports haven't changed, skip execution entirely to save CPU and avoid redundant calls
                 if let lastPorts = currentLastPorts[pid], lastPorts == ports {
                     continue
                 }
                 
-                let portList = ports.map { String($0) }.joined(separator: " ")
-                var pfRules: [String] = []
-                let anchor = self.anchorName(for: pid)
-                
-                if let downPipe = config.downloadPipeId {
-                    pfRules.append("dummynet in quick proto tcp from any to any port { \(portList) } pipe \(downPipe)")
-                    pfRules.append("dummynet in quick proto udp from any to any port { \(portList) } pipe \(downPipe)")
+                self.queue.sync {
+                    self.lastConfiguredPorts[pid] = ports
                 }
-                if let upPipe = config.uploadPipeId {
-                    pfRules.append("dummynet out quick proto tcp from any port { \(portList) } to any pipe \(upPipe)")
-                    pfRules.append("dummynet out quick proto udp from any port { \(portList) } to any pipe \(upPipe)")
-                }
-                
-                if !pfRules.isEmpty {
-                    let ruleString = pfRules.joined(separator: "\\n")
-                    let command = "printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchor) -f -"
-                    _ = try? await PrivilegeManager.shared.executePrivileged(command: command)
-                    
-                    self.queue.sync {
-                        self.lastConfiguredPorts[pid] = ports
-                    }
-                }
+                hasPortChanges = true
+            }
+            
+            if hasPortChanges {
+                try? await self.rebuildAllRulesAndPipes()
             }
         }
     }

@@ -68,6 +68,25 @@ public final class PrivilegeManager: @unchecked Sendable {
         }
     }
     
+    /// Synchronously executes a command with root privileges (used during app termination).
+    @discardableResult
+    public func executePrivilegedSync(command: String) -> Bool {
+        if isRoot {
+            return (try? runDirectShell(command: command)) != nil
+        }
+        
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard isHelperActive else { return false }
+        do {
+            try sendCommandToHelper(command, timeoutSeconds: 1.0)
+            return true
+        } catch {
+            return false
+        }
+    }
+    
     /// Ensures the background root worker is running (prompts password only once).
     private func ensureHelperRunning() throws {
         if isHelperActive && checkHelperAlive() {
@@ -98,8 +117,9 @@ public final class PrivilegeManager: @unchecked Sendable {
                 if [ "$line" = "PING" ]; then
                     echo "PONG" > "$FIFO_OUT"
                 elif [ "$line" = "EXIT_WORKER" ]; then
-                    /sbin/pfctl -a 'com.apple/throttlenet*' -F all 2>/dev/null
+                    /sbin/pfctl -a com.apple/throttlenet -F all 2>/dev/null
                     /usr/sbin/dnctl -q flush 2>/dev/null
+                    /sbin/pfctl -F states 2>/dev/null
                     echo "OK" > "$FIFO_OUT"
                     exit 0
                 else
@@ -205,7 +225,7 @@ public final class PrivilegeManager: @unchecked Sendable {
         return String(data: data, encoding: .utf8) ?? ""
     }
     
-    /// Terminates the background helper worker on app exit.
+    /// Terminates the background helper worker and flushes kernel rules and states.
     public func terminateHelper() {
         lock.lock()
         defer { lock.unlock() }

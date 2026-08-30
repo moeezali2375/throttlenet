@@ -6,6 +6,18 @@ import ThrottleNetCore
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register signal handlers for unexpected terminations
+        signal(SIGINT) { _ in
+            TrafficShaper.shared.resetAllSync()
+            PrivilegeManager.shared.terminateHelper()
+            exit(0)
+        }
+        signal(SIGTERM) { _ in
+            TrafficShaper.shared.resetAllSync()
+            PrivilegeManager.shared.terminateHelper()
+            exit(0)
+        }
+        
         // Start background network sampling
         Task { @MainActor in
             NetworkMonitor.shared.startMonitoring()
@@ -13,14 +25,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     public func applicationWillTerminate(_ notification: Notification) {
-        // Clean up any active PF anchors and Dummynet pipes on exit
-        let semaphore = DispatchSemaphore(value: 0)
-        Task {
-            try? await TrafficShaper.shared.resetAll()
-            PrivilegeManager.shared.terminateHelper()
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: .now() + 1.5)
+        // Synchronously flush all PF anchors, dummynet pipes, and connection states
+        TrafficShaper.shared.resetAllSync()
+        PrivilegeManager.shared.terminateHelper()
     }
     
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
