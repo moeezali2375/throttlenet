@@ -9,6 +9,7 @@ public struct ThrottleSheetView: View {
     @State private var uploadLimitKBps: Double
     @State private var enableDownloadLimit: Bool
     @State private var enableUploadLimit: Bool
+    @State private var rememberAsAutoRule: Bool
     
     private let downloadPresets: [(label: String, kbps: Double)] = [
         ("100 KB/s", 100),
@@ -35,17 +36,20 @@ public struct ThrottleSheetView: View {
         self.viewModel = viewModel
         
         let existingConfig = process.throttleConfig
-        let dlLimit = existingConfig?.downloadLimitKBps ?? 500.0
-        let ulLimit = existingConfig?.uploadLimitKBps ?? 250.0
+        let persistentRule = process.persistentRule
+        
+        let dlLimit = existingConfig?.downloadLimitKBps ?? (persistentRule?.downloadLimitKBps ?? 500.0)
+        let ulLimit = existingConfig?.uploadLimitKBps ?? (persistentRule?.uploadLimitKBps ?? 250.0)
         
         _downloadLimitKBps = State(initialValue: dlLimit > 0 ? dlLimit : 500.0)
         _uploadLimitKBps = State(initialValue: ulLimit > 0 ? ulLimit : 250.0)
-        _enableDownloadLimit = State(initialValue: (existingConfig?.downloadLimitKBps ?? 500.0) > 0)
-        _enableUploadLimit = State(initialValue: (existingConfig?.uploadLimitKBps ?? 0) > 0)
+        _enableDownloadLimit = State(initialValue: dlLimit > 0)
+        _enableUploadLimit = State(initialValue: ulLimit > 0)
+        _rememberAsAutoRule = State(initialValue: persistentRule != nil ? persistentRule!.autoApplyOnLaunch : true)
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             // Header: Process info & current rate
             HStack(spacing: 12) {
                 if let icon = process.icon {
@@ -57,9 +61,25 @@ public struct ThrottleSheetView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(process.displayName)
-                        .font(.system(size: 15, weight: .bold))
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(process.displayName)
+                            .font(.system(size: 15, weight: .bold))
+                            .lineLimit(1)
+                        
+                        if process.hasPersistentRule {
+                            HStack(spacing: 3) {
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 8))
+                                Text("Auto-Rule")
+                                    .font(.system(size: 9, weight: .bold))
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.purple.opacity(0.15))
+                            .foregroundColor(.purple)
+                            .cornerRadius(4)
+                        }
+                    }
                     
                     HStack(spacing: 6) {
                         Text(process.rawName)
@@ -84,12 +104,12 @@ public struct ThrottleSheetView: View {
                     }
                 }
             }
-            .padding(.bottom, 6)
+            .padding(.bottom, 4)
             
             Divider()
             
             // Download Throttling Section
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("Download Limit (Inbound)", systemImage: "arrow.down.circle.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -145,7 +165,7 @@ public struct ThrottleSheetView: View {
             }
             
             // Upload Throttling Section
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("Upload Limit (Outbound)", systemImage: "arrow.up.circle.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -200,16 +220,33 @@ public struct ThrottleSheetView: View {
                 }
             }
             
+            // Persistent Auto-Rule Option
+            HStack(alignment: .top, spacing: 10) {
+                Toggle("", isOn: $rememberAsAutoRule)
+                    .toggleStyle(.checkbox)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Remember & auto-apply for \(process.displayName)")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("ThrottleNet will automatically re-apply this limit whenever \(process.displayName) starts or runs in the background.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(10)
+            .background(Color.purple.opacity(0.06))
+            .cornerRadius(8)
+            
             Spacer()
             
             // Footer actions
             HStack {
-                if process.isThrottled {
+                if process.isThrottled || process.hasPersistentRule {
                     Button(role: .destructive, action: {
-                        viewModel.removeThrottle(for: process)
+                        viewModel.removeThrottle(for: process, deletePersistentRule: true)
                         viewModel.isShowingThrottleSheet = false
                     }) {
-                        Label("Remove Throttle", systemImage: "trash")
+                        Label("Remove & Delete Rule", systemImage: "trash")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -224,7 +261,12 @@ public struct ThrottleSheetView: View {
                 Button(action: {
                     let dl = enableDownloadLimit ? downloadLimitKBps : 0
                     let ul = enableUploadLimit ? uploadLimitKBps : 0
-                    viewModel.applyThrottle(for: process, downloadLimitKBps: dl, uploadLimitKBps: ul)
+                    viewModel.applyThrottle(
+                        for: process,
+                        downloadLimitKBps: dl,
+                        uploadLimitKBps: ul,
+                        saveAsPersistentRule: rememberAsAutoRule
+                    )
                 }) {
                     if viewModel.isPerformingAction {
                         ProgressView()
@@ -240,6 +282,6 @@ public struct ThrottleSheetView: View {
             }
         }
         .padding(20)
-        .frame(width: 480, height: 420)
+        .frame(width: 490, height: 460)
     }
 }

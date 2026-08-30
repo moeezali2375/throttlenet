@@ -139,6 +139,19 @@ public final class NetworkMonitor: ObservableObject {
             // Metadata & Icon resolution
             let (displayName, bundleId, icon, isSystem) = ProcessInfoService.shared.resolveInfo(for: pid, rawName: rawName)
             let throttleConfig = TrafficShaper.shared.getThrottleConfig(for: pid)
+            let persistentRule = PersistentRuleStore.shared.rule(forProcessName: rawName, bundleId: bundleId)
+            
+            // Auto-apply persistent rule if enabled and not already throttled
+            if let rule = persistentRule, rule.isEnabled, rule.autoApplyOnLaunch, throttleConfig == nil {
+                Task {
+                    try? await TrafficShaper.shared.applyThrottle(
+                        for: pid,
+                        processName: rawName,
+                        downloadLimitKBps: rule.downloadLimitKBps,
+                        uploadLimitKBps: rule.uploadLimitKBps
+                    )
+                }
+            }
             
             let info = ProcessNetworkInfo(
                 pid: pid,
@@ -153,6 +166,7 @@ public final class NetworkMonitor: ObservableObject {
                 downloadHistory: history.download,
                 uploadHistory: history.upload,
                 throttleConfig: throttleConfig,
+                persistentRule: persistentRule,
                 isSystemProcess: isSystem,
                 lastSeen: timestamp,
                 activeSocketCount: 0

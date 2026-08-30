@@ -19,12 +19,17 @@ public struct ProcessNetworkInfo: Identifiable, Equatable {
     public var uploadHistory: [Double] = []
     
     public var throttleConfig: ThrottleConfig?
+    public var persistentRule: PersistentRule?
     public var isSystemProcess: Bool = false
     public var lastSeen: Date = Date()
     public var activeSocketCount: Int = 0
 
     public var isThrottled: Bool {
         return throttleConfig?.isEnabled == true
+    }
+    
+    public var hasPersistentRule: Bool {
+        return persistentRule?.isEnabled == true
     }
     
     public var formattedDownloadSpeed: String {
@@ -50,6 +55,7 @@ public struct ProcessNetworkInfo: Identifiable, Equatable {
                lhs.totalBytesIn == rhs.totalBytesIn &&
                lhs.totalBytesOut == rhs.totalBytesOut &&
                lhs.throttleConfig == rhs.throttleConfig &&
+               lhs.persistentRule == rhs.persistentRule &&
                lhs.activeSocketCount == rhs.activeSocketCount
     }
 }

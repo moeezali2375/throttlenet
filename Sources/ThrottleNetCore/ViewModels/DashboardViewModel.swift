@@ -6,6 +6,7 @@ public enum ProcessFilterMode: String, CaseIterable, Identifiable {
     case all = "All"
     case active = "Active Traffic"
     case throttled = "Throttled"
+    case autoRules = "Auto-Rules"
     case userApps = "User Apps"
     
     public var id: String { rawValue }
@@ -30,15 +31,24 @@ public final class DashboardViewModel: ObservableObject {
     
     @Published public var selectedProcessForThrottle: ProcessNetworkInfo? = nil
     @Published public var isShowingThrottleSheet: Bool = false
+    @Published public var isShowingSavedRulesSheet: Bool = false
     @Published public var errorMessage: String? = nil
     @Published public var isShowingErrorAlert: Bool = false
     @Published public var isPerformingAction: Bool = false
     
     private var cancellables = Set<AnyCancellable>()
     public let monitor = NetworkMonitor.shared
+    public let ruleStore = PersistentRuleStore.shared
     
     public init() {
         monitor.$processes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        
+        ruleStore.$rules
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -57,6 +67,8 @@ public final class DashboardViewModel: ObservableObject {
             list = list.filter { $0.downloadBytesPerSec > 100 || $0.uploadBytesPerSec > 100 || $0.isThrottled }
         case .throttled:
             list = list.filter { $0.isThrottled }
+        case .autoRules:
+            list = list.filter { $0.hasPersistentRule }
         case .userApps:
             list = list.filter { !$0.isSystemProcess }
         }
@@ -74,7 +86,7 @@ public final class DashboardViewModel: ObservableObject {
         
         // 3. Sort
         list.sort { a, b in
-            // Throttled processes always prioritized slightly at the top if sorting by speed
+            // Throttled / Auto-Rule processes prioritized slightly at the top if sorting by speed
             if a.isThrottled != b.isThrottled && filterMode != .throttled {
                 return a.isThrottled && !b.isThrottled
             }
@@ -104,8 +116,31 @@ public final class DashboardViewModel: ObservableObject {
         isShowingThrottleSheet = true
     }
     
-    public func applyThrottle(for process: ProcessNetworkInfo, downloadLimitKBps: Double, uploadLimitKBps: Double) {
+    public func applyThrottle(
+        for process: ProcessNetworkInfo,
+        downloadLimitKBps: Double,
+        uploadLimitKBps: Double,
+        saveAsPersistentRule: Bool = true
+    ) {
         isPerformingAction = true
+        
+        if saveAsPersistentRule {
+            let rule = PersistentRule(
+                processName: process.rawName,
+                bundleIdentifier: process.bundleIdentifier,
+                displayName: process.displayName,
+                downloadLimitKBps: downloadLimitKBps,
+                uploadLimitKBps: uploadLimitKBps,
+                isEnabled: true,
+                autoApplyOnLaunch: true,
+                lastAppliedAt: Date()
+            )
+            ruleStore.saveRule(rule)
+        } else {
+            // Remove persistent rule if user explicitly unchecks remember
+            ruleStore.deleteRule(forProcessName: process.rawName)
+        }
+        
         Task {
             do {
                 try await TrafficShaper.shared.applyThrottle(
@@ -133,13 +168,16 @@ public final class DashboardViewModel: ObservableObject {
         if process.isThrottled {
             removeThrottle(for: process)
         } else {
-            // Default 500 KB/s DL / 250 KB/s UL or open sheet
             openThrottleSettings(for: process)
         }
     }
     
-    public func removeThrottle(for process: ProcessNetworkInfo) {
+    public func removeThrottle(for process: ProcessNetworkInfo, deletePersistentRule: Bool = true) {
         isPerformingAction = true
+        if deletePersistentRule {
+            ruleStore.deleteRule(forProcessName: process.rawName)
+        }
+        
         Task {
             do {
                 try await TrafficShaper.shared.removeThrottle(for: process.pid)

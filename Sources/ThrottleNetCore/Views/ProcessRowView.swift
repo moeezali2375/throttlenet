@@ -29,6 +29,13 @@ public struct ProcessRowView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                     
+                    if process.hasPersistentRule {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.purple)
+                            .help("Auto-Rule active: Persists across restarts")
+                    }
+                    
                     if process.isSystemProcess {
                         Text("SYSTEM")
                             .font(.system(size: 8, weight: .bold))
@@ -100,14 +107,32 @@ public struct ProcessRowView: View {
                     .help("Click to modify bandwidth limit")
                     
                     Button(action: {
-                        viewModel.removeThrottle(for: process)
+                        viewModel.removeThrottle(for: process, deletePersistentRule: true)
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                             .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
-                    .help("Remove throttle")
+                    .help("Remove throttle and auto-rule")
+                } else if process.hasPersistentRule, let rule = process.persistentRule {
+                    Button(action: {
+                        viewModel.openThrottleSettings(for: process)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 9))
+                            Text("Auto: \(Int(rule.downloadLimitKBps))K")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.purple.opacity(0.15))
+                        .foregroundColor(.purple)
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Auto-Rule configured: Click to edit")
                 } else {
                     Button(action: {
                         viewModel.openThrottleSettings(for: process)

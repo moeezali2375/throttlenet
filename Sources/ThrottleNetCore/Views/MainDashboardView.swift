@@ -56,6 +56,21 @@ public struct MainDashboardView: View {
                 
                 Spacer()
                 
+                // Auto-Rules Sheet Button
+                Button(action: {
+                    viewModel.isShowingSavedRulesSheet = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.purple)
+                        Text("Auto-Rules (\(viewModel.ruleStore.rules.count))")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                
                 // Sort Menu
                 Menu {
                     Picker("Sort By", selection: $viewModel.sortField) {
@@ -83,7 +98,7 @@ public struct MainDashboardView: View {
                     }
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 140)
+                .frame(width: 130)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -203,7 +218,7 @@ public struct MainDashboardView: View {
             .padding(.vertical, 8)
             .background(Color(NSColor.windowBackgroundColor))
         }
-        .frame(minWidth: 680, minHeight: 480)
+        .frame(minWidth: 700, minHeight: 480)
         .onAppear {
             viewModel.monitor.startMonitoring()
         }
@@ -211,6 +226,9 @@ public struct MainDashboardView: View {
             if let selected = viewModel.selectedProcessForThrottle {
                 ThrottleSheetView(process: selected, viewModel: viewModel)
             }
+        }
+        .sheet(isPresented: $viewModel.isShowingSavedRulesSheet) {
+            SavedRulesSheetView(viewModel: viewModel)
         }
         .alert(isPresented: $viewModel.isShowingErrorAlert) {
             Alert(

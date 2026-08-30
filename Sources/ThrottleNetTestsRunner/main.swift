@@ -75,7 +75,30 @@ assert(decoded.downloadLimitKBps == 500)
 assert(decoded.uploadLimitKBps == 200)
 print("  ✅ ThrottleConfig tests passed!")
 
-// Test 5: Live Process Network Monitor Sampling Check
+// Test 5: PersistentRuleStore CRUD & Matching
+print("• Testing PersistentRuleStore CRUD & Matching...")
+let store = PersistentRuleStore.shared
+let testRule = PersistentRule(
+    processName: "cloudd",
+    bundleIdentifier: "com.apple.CloudKit.cloudd",
+    displayName: "iCloud Service (cloudd)",
+    downloadLimitKBps: 500,
+    uploadLimitKBps: 100,
+    isEnabled: true,
+    autoApplyOnLaunch: true
+)
+store.saveRule(testRule)
+guard let retrievedRule = store.rule(forProcessName: "CLOUDD") else {
+    fatalError("Failed to retrieve saved rule for cloudd (case-insensitive)")
+}
+assert(retrievedRule.downloadLimitKBps == 500, "Download limit mismatch")
+assert(retrievedRule.uploadLimitKBps == 100, "Upload limit mismatch")
+assert(retrievedRule.autoApplyOnLaunch == true, "autoApply mismatch")
+store.deleteRule(forProcessName: "cloudd")
+assert(store.rule(forProcessName: "cloudd") == nil, "Failed to delete rule")
+print("  ✅ PersistentRuleStore tests passed!")
+
+// Test 6: Live Process Network Monitor Sampling Check
 print("• Testing live nettop sampling...")
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
@@ -92,4 +115,4 @@ guard let nettopOutput = String(data: nettopData, encoding: .utf8) else {
 assert(nettopOutput.contains("bytes_in,bytes_out"), "nettop output missing header")
 print("  ✅ Live nettop sampling succeeded! Output size: \(nettopOutput.count) characters")
 
-print("\n🎉 ALL TESTS PASSED SUCCESSFULLY!")
+print("\n🎉 ALL 6 TESTS PASSED SUCCESSFULLY!")
