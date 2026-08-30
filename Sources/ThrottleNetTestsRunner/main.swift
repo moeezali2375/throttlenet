@@ -21,7 +21,7 @@ assert(SpeedUnit.formatTotal(bytes: 1024 * 1024 * 25) == "25.00 MB")
 assert(SpeedUnit.formatTotal(bytes: UInt64(1024 * 1024 * 1024 * 3.5)) == "3.50 GB")
 print("  ✅ Total Bytes tests passed!")
 
-// Test 3: Socket Tracker Parsing
+// Test 3: Socket Tracker Parsing (lsof & nettop)
 print("• Testing Socket Tracker Parsing...")
 let sampleLsofOutput = """
 p21471
@@ -34,13 +34,26 @@ n[::1]:52784->[::1]:3000
 f38
 n*:8080
 """
-let ports = SocketTracker.shared.parsePorts(from: sampleLsofOutput)
-assert(ports.contains(53086), "Missing port 53086")
-assert(ports.contains(52661), "Missing port 52661")
-assert(ports.contains(52784), "Missing port 52784")
-assert(ports.contains(8080), "Missing port 8080")
-assert(ports.count == 4, "Port count mismatch")
-print("  ✅ SocketTracker tests passed!")
+let lsofPorts = SocketTracker.shared.parsePorts(from: sampleLsofOutput)
+assert(lsofPorts.contains(53086), "Missing port 53086")
+assert(lsofPorts.contains(52661), "Missing port 52661")
+assert(lsofPorts.contains(52784), "Missing port 52784")
+assert(lsofPorts.contains(8080), "Missing port 8080")
+assert(lsofPorts.count == 4, "Port count mismatch")
+
+let sampleNettopOutput = """
+time,,interface,state,bytes_in,bytes_out,
+05:25:00.218222,cloudd.593,,,597244100,12247614,
+05:25:00.216907,tcp6 2407:aa80:116:4566:e4a0:dc16:5d52:2a80.56330<->2406:da60:8000:c0::305:97fe.443,en0,Established,47099090,1144612,
+05:25:00.210518,quic4 192.168.0.101:51126<->17.248.224.13:443,en0,,5815,8131,
+05:25:00.210889,quic4 192.168.100.118:60982<->17.248.224.66:443,en0,,8402,9234,
+"""
+let nettopPorts = SocketTracker.shared.parseNettopPorts(from: sampleNettopOutput)
+assert(nettopPorts.contains(56330), "Missing nettop port 56330")
+assert(nettopPorts.contains(51126), "Missing nettop port 51126")
+assert(nettopPorts.contains(60982), "Missing nettop port 60982")
+assert(nettopPorts.count == 3, "Nettop port count mismatch")
+print("  ✅ SocketTracker tests passed (both lsof and nettop flows)!")
 
 // Test 4: Throttle Config Serialization
 print("• Testing Throttle Config Serialization...")
@@ -79,4 +92,4 @@ guard let nettopOutput = String(data: nettopData, encoding: .utf8) else {
 assert(nettopOutput.contains("bytes_in,bytes_out"), "nettop output missing header")
 print("  ✅ Live nettop sampling succeeded! Output size: \(nettopOutput.count) characters")
 
-print("\n🎉 ALL 5 TESTS PASSED SUCCESSFULLY!")
+print("\n🎉 ALL TESTS PASSED SUCCESSFULLY!")

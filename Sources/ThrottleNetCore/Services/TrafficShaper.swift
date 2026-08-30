@@ -16,6 +16,11 @@ public final class TrafficShaper {
         socketRefreshTimer?.invalidate()
     }
     
+    /// Anchor prefix registered in macOS /etc/pf.conf ("com.apple/*")
+    private func anchorName(for pid: pid_t) -> String {
+        return "com.apple/throttlenet_\(pid)"
+    }
+    
     /// Apply or update bandwidth limits for a process.
     public func applyThrottle(
         for pid: pid_t,
@@ -41,10 +46,11 @@ public final class TrafficShaper {
             commands.append("/usr/sbin/dnctl pipe delete \(upPipeId) 2>/dev/null || true")
         }
         
-        // 2. Fetch active ports for this process
+        // 2. Fetch active ports for this process (via nettop + lsof)
         let ports = SocketTracker.shared.getLocalPorts(for: pid)
+        let anchor = anchorName(for: pid)
         
-        // 3. Build PF anchor rules if ports exist
+        // 3. Build PF anchor rules inside com.apple/* wildcard
         if !ports.isEmpty {
             let portList = ports.map { String($0) }.joined(separator: " ")
             var pfRules: [String] = []
@@ -60,7 +66,7 @@ public final class TrafficShaper {
             
             if !pfRules.isEmpty {
                 let ruleString = pfRules.joined(separator: "\\n")
-                commands.append("printf \"\(ruleString)\\n\" | /sbin/pfctl -a throttlenet/\(pid) -f -")
+                commands.append("printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchor) -f -")
             }
         }
         
@@ -88,11 +94,12 @@ public final class TrafficShaper {
     /// Remove bandwidth limits for a process.
     public func removeThrottle(for pid: pid_t) async throws {
         guard let config = queue.sync(execute: { activeThrottles[pid] }) else { return }
+        let anchor = anchorName(for: pid)
         
         var commands: [String] = []
         
         // Flush pf anchor for this pid
-        commands.append("/sbin/pfctl -a throttlenet/\(pid) -F all 2>/dev/null || true")
+        commands.append("/sbin/pfctl -a \(anchor) -F all 2>/dev/null || true")
         
         // Delete dnctl pipes
         if let downPipe = config.downloadPipeId {
@@ -112,8 +119,7 @@ public final class TrafficShaper {
     /// Resets all active throttles and clears all dummynet pipes and pf anchors.
     public func resetAll() async throws {
         let commands = [
-            "/sbin/pfctl -a 'throttlenet/*' -F all 2>/dev/null || true",
-            "/sbin/pfctl -a throttlenet -F all 2>/dev/null || true",
+            "/sbin/pfctl -a 'com.apple/throttlenet*' -F all 2>/dev/null || true",
             "/usr/sbin/dnctl -q flush 2>/dev/null || true"
         ]
         
@@ -135,7 +141,8 @@ public final class TrafficShaper {
     }
     
     private func startSocketRefreshTimer() {
-        socketRefreshTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+        // Refresh every 1.5 seconds for responsive dynamic port tracking
+        socketRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.refreshActiveSockets()
         }
     }
@@ -153,6 +160,7 @@ public final class TrafficShaper {
                 
                 let portList = ports.map { String($0) }.joined(separator: " ")
                 var pfRules: [String] = []
+                let anchor = self.anchorName(for: pid)
                 
                 if let downPipe = config.downloadPipeId {
                     pfRules.append("dummynet in quick proto tcp from any to any port { \(portList) } pipe \(downPipe)")
@@ -165,7 +173,7 @@ public final class TrafficShaper {
                 
                 if !pfRules.isEmpty {
                     let ruleString = pfRules.joined(separator: "\\n")
-                    let command = "printf \"\(ruleString)\\n\" | /sbin/pfctl -a throttlenet/\(pid) -f -"
+                    let command = "printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchor) -f -"
                     _ = try? await PrivilegeManager.shared.executePrivileged(command: command)
                 }
             }
