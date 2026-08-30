@@ -5,6 +5,7 @@ public final class TrafficShaper {
     public static let shared = TrafficShaper()
     
     private var activeThrottles: [pid_t: ThrottleConfig] = [:]
+    private var lastConfiguredPorts: [pid_t: Set<UInt16>] = [:]
     private var socketRefreshTimer: Timer?
     private let queue = DispatchQueue(label: "com.throttlenet.trafficshaper", qos: .userInitiated)
     
@@ -46,7 +47,7 @@ public final class TrafficShaper {
             commands.append("/usr/sbin/dnctl pipe delete \(upPipeId) 2>/dev/null || true")
         }
         
-        // 2. Fetch active ports for this process (via nettop + lsof)
+        // 2. Fetch active ports for this process
         let ports = SocketTracker.shared.getLocalPorts(for: pid)
         let anchor = anchorName(for: pid)
         
@@ -88,6 +89,7 @@ public final class TrafficShaper {
         
         queue.sync {
             activeThrottles[pid] = config
+            lastConfiguredPorts[pid] = ports
         }
     }
     
@@ -113,6 +115,7 @@ public final class TrafficShaper {
         
         queue.sync {
             _ = activeThrottles.removeValue(forKey: pid)
+            _ = lastConfiguredPorts.removeValue(forKey: pid)
         }
     }
     
@@ -127,6 +130,7 @@ public final class TrafficShaper {
         
         queue.sync {
             activeThrottles.removeAll()
+            lastConfiguredPorts.removeAll()
         }
     }
     
@@ -141,15 +145,14 @@ public final class TrafficShaper {
     }
     
     private func startSocketRefreshTimer() {
-        // Refresh every 1.5 seconds for responsive dynamic port tracking
-        socketRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        socketRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.refreshActiveSockets()
         }
     }
     
     /// Periodically checks active throttles to update PF rules if the process opened new ports.
     private func refreshActiveSockets() {
-        let currentThrottles = queue.sync { self.activeThrottles }
+        let (currentThrottles, currentLastPorts) = queue.sync { (self.activeThrottles, self.lastConfiguredPorts) }
         guard !currentThrottles.isEmpty else { return }
         
         Task {
@@ -157,6 +160,11 @@ public final class TrafficShaper {
                 guard config.isEnabled else { continue }
                 let ports = SocketTracker.shared.getLocalPorts(for: pid)
                 guard !ports.isEmpty else { continue }
+                
+                // If ports haven't changed, skip execution entirely to save CPU and avoid redundant calls
+                if let lastPorts = currentLastPorts[pid], lastPorts == ports {
+                    continue
+                }
                 
                 let portList = ports.map { String($0) }.joined(separator: " ")
                 var pfRules: [String] = []
@@ -175,6 +183,10 @@ public final class TrafficShaper {
                     let ruleString = pfRules.joined(separator: "\\n")
                     let command = "printf \"\(ruleString)\\n\" | /sbin/pfctl -a \(anchor) -f -"
                     _ = try? await PrivilegeManager.shared.executePrivileged(command: command)
+                    
+                    self.queue.sync {
+                        self.lastConfiguredPorts[pid] = ports
+                    }
                 }
             }
         }

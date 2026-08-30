@@ -17,6 +17,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let semaphore = DispatchSemaphore(value: 0)
         Task {
             try? await TrafficShaper.shared.resetAll()
+            PrivilegeManager.shared.terminateHelper()
             semaphore.signal()
         }
         _ = semaphore.wait(timeout: .now() + 1.5)
