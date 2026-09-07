@@ -63,6 +63,11 @@ A lightweight, native macOS menu bar and dashboard application to monitor per-pr
 ```
 throttlenet/
 ├── Package.swift                             # Swift Package Manager manifest
+├── Resources/                                # App Icons & Graphic Assets
+│   ├── AppIcon.icns                          # Native macOS multi-resolution icon bundle
+│   ├── AppIcon.png                           # Master 1024x1024 app icon
+│   ├── AppIconMinimal.icns                   # Alternative minimal neon icon bundle
+│   └── AppIconMinimal.png                    # Alternative minimal master icon
 ├── Sources/
 │   ├── ThrottleNetCore/                      # Core Library
 │   │   ├── Models/
@@ -75,7 +80,8 @@ throttlenet/
 │   │   │   ├── SocketTracker.swift           # PID socket / port discoverer
 │   │   │   ├── TrafficShaper.swift           # dnctl / pfctl pipe & anchor coordinator
 │   │   │   ├── PrivilegeManager.swift        # Admin execution manager
-│   │   │   └── ProcessInfoService.swift      # App icon & localized name resolver
+│   │   │   ├── ProcessInfoService.swift      # App icon & localized name resolver
+│   │   │   └── AppIconHelper.swift           # App icon locator & runtime loader
 │   │   ├── ViewModels/
 │   │   │   └── DashboardViewModel.swift      # State, search, sorting & actions
 │   │   └── Views/
@@ -83,16 +89,17 @@ throttlenet/
 │   │       ├── ProcessRowView.swift          # Process item with live speed tags
 │   │       ├── ThrottleSheetView.swift       # Slider & numeric speed limit sheet
 │   │       ├── SpeedBadgeView.swift          # Colored speed badge (↓ / ↑)
-│   │       ├── StatusBarSummaryView.swift    # Global header card
+│   │       ├── StatusBarSummaryView.swift    # Global header card with app branding
 │   │       └── Components/
-│   │           └── SparklineView.swift       # Real-time mini bandwidth graph
+│   │           ├── SparklineView.swift       # Real-time mini bandwidth graph
+│   │           └── AppIconView.swift         # Dynamic rounded squircle app icon
 │   ├── ThrottleNetApp/
 │   │   ├── ThrottleNetApp.swift              # App entry point & MenuBarExtra
-│   │   └── AppDelegate.swift                 # Lifecycle & cleanup on exit
+│   │   └── AppDelegate.swift                 # Lifecycle, Dock icon & cleanup on exit
 │   └── ThrottleNetTestsRunner/
 │       └── main.swift                        # Automated test suite
 └── Scripts/
-    ├── build_app.sh                          # Compiles & packages ThrottleNet.app
+    ├── build_app.sh                          # Compiles & packages ThrottleNet.app with AppIcon.icns
     └── run.sh                                # Quick launch script
 ```
 

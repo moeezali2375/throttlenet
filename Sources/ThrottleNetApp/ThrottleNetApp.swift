@@ -38,8 +38,11 @@ struct ThrottleNetApp: App {
         // Menu Bar Status Item
         MenuBarExtra {
             VStack(alignment: .leading, spacing: 6) {
-                Text("ThrottleNet")
-                    .font(.headline)
+                HStack(spacing: 8) {
+                    AppIconView(size: 20)
+                    Text("ThrottleNet")
+                        .font(.headline)
+                }
                 
                 let totals = monitor.systemTotals
                 Text("Download: \(totals.formattedDownloadSpeed)")

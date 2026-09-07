@@ -22,6 +22,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             NetworkMonitor.shared.startMonitoring()
         }
+        
+        // Apply Application Icon in Dock & Process Table
+        if let icon = AppIconHelper.shared.appIcon {
+            NSApplication.shared.applicationIconImage = icon
+        }
     }
     
     public func applicationWillTerminate(_ notification: Notification) {

@@ -9,6 +9,23 @@ public struct StatusBarSummaryView: View {
         
         VStack(spacing: 10) {
             HStack(alignment: .center, spacing: 16) {
+                // App Branding Icon & Title
+                HStack(spacing: 8) {
+                    AppIconView(size: 32)
+                        .shadow(color: Color.black.opacity(0.12), radius: 2, x: 0, y: 1)
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("ThrottleNet")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Bandwidth")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Divider()
+                    .frame(height: 24)
+                
                 // Download summary
                 HStack(spacing: 8) {
                     Circle()
