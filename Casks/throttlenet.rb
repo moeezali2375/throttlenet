@@ -7,7 +7,7 @@ cask "throttlenet" do
   desc "Native macOS per-process network monitor and bandwidth limiter"
   homepage "https://github.com/moeezali2375/throttlenet"
 
-  depends_on macos: :ventura
+  `depends_on macos: :ventura
 
   app "ThrottleNet.app"
 

@@ -39,17 +39,18 @@
 
 ### Option 1: Install via Homebrew (Recommended)
 
-You can install ThrottleNet with a single command via [Homebrew](https://brew.sh):
+You can install ThrottleNet directly via [Homebrew](https://brew.sh):
 
-```bash
-brew install --cask moeezali2375/tap/throttlenet
-```
-
-Or tap the repository first:
 ```bash
 brew tap moeezali2375/tap
 brew install --cask throttlenet
 ```
+
+> [!NOTE]
+> On Homebrew 4.4+, if prompted about an untrusted custom tap, simply run:
+> ```bash
+> brew trust moeezali2375/tap
+> ```
 
 To update in the future:
 ```bash
@@ -60,6 +61,31 @@ brew upgrade --cask throttlenet
 1. Download `ThrottleNet-v1.0.0-macOS.zip` from the [Releases](https://github.com/moeezali2375/throttlenet/releases) page.
 2. Unzip the archive and move `ThrottleNet.app` to your `/Applications` directory.
 3. Open ThrottleNet.
+
+---
+
+## 🛡️ macOS Gatekeeper ("App is blocked from opening")
+
+Because ThrottleNet is free, open-source software built independently without a paid Apple Developer certificate ($99/year), macOS Gatekeeper may display a security warning when launching for the first time:
+> *"ThrottleNet can't be opened because Apple cannot check it for malicious software"* or *"ThrottleNet is damaged and can't be opened"*.
+
+You can easily bypass this using either method below:
+
+### Method 1: Right-Click to Open (Fastest)
+1. Open your **`/Applications`** folder in Finder.
+2. **Right-click** (or hold <kbd>Control</kbd> and click) on **`ThrottleNet.app`**.
+3. Select **Open** from the context menu.
+4. Click **Open** again in the confirmation prompt. *(You only need to do this once!)*
+
+*Alternatively*: Go to **System Settings** ➡️ **Privacy & Security** ➡️ scroll down to the **Security** section, and click **"Open Anyway"** next to ThrottleNet.
+
+### Method 2: Terminal Command (Remove Quarantine)
+If macOS blocks the app, open Terminal and run this command to remove Apple's quarantine flag:
+```bash
+xattr -cr /Applications/ThrottleNet.app
+```
+ThrottleNet will now open normally with a double-click!
+
 
 ### Option 3: Build from Source
 ```bash
