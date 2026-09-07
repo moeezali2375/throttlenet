@@ -65,7 +65,7 @@ public final class NetworkMonitor: ObservableObject {
   private nonisolated func fetchNettopSnapshot() async -> String? {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-    task.arguments = ["-P", "-L", "1", "-x", "-J", "bytes_in,bytes_out"]
+    task.arguments = ["-P", "-L", "1", "-n", "-x", "-J", "bytes_in,bytes_out"]
 
     let pipe = Pipe()
     task.standardOutput = pipe

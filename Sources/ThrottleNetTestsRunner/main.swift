@@ -99,21 +99,24 @@ store.deleteRule(forProcessName: "cloudd")
 assert(store.rule(forProcessName: "cloudd") == nil, "Failed to delete rule")
 print("  ✅ PersistentRuleStore tests passed!")
 
-// Test 6: Live Process Network Monitor Sampling Check
-print("• Testing live nettop sampling...")
+// Test 6: Live Process Network Monitor Sampling Check (with -n flag)
+print("• Testing live nettop sampling (with -n flag)...")
+let startTime = Date()
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-task.arguments = ["-P", "-L", "1", "-x", "-J", "bytes_in,bytes_out"]
+task.arguments = ["-P", "-L", "1", "-n", "-x", "-J", "bytes_in,bytes_out"]
 let pipe = Pipe()
 task.standardOutput = pipe
 try task.run()
 let nettopData = pipe.fileHandleForReading.readDataToEndOfFile()
 task.waitUntilExit()
+let elapsed = Date().timeIntervalSince(startTime)
 assert(task.terminationStatus == 0, "nettop exited with non-zero status")
 guard let nettopOutput = String(data: nettopData, encoding: .utf8) else {
   fatalError("Failed to decode nettop output")
 }
 assert(nettopOutput.contains("bytes_in,bytes_out"), "nettop output missing header")
-print("  ✅ Live nettop sampling succeeded! Output size: \(nettopOutput.count) characters")
+assert(elapsed < 1.0, "nettop with -n took too long: \(elapsed)s")
+print("  ✅ Live nettop sampling succeeded in \(String(format: "%.3f", elapsed))s! Output size: \(nettopOutput.count) characters")
 
 print("\n🎉 ALL 6 TESTS PASSED SUCCESSFULLY!")
