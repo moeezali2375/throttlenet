@@ -187,34 +187,15 @@ public struct MainDashboardView: View {
       HStack(spacing: 12) {
         HStack(spacing: 6) {
           Circle()
-            .fill(viewModel.monitor.isMonitoring ? Color.green : Color.red)
+            .fill(Color.green)
             .frame(width: 7, height: 7)
 
-          Text(
-            viewModel.monitor.isMonitoring
-              ? "Monitoring (\(list.count) processes)" : "Monitoring Paused"
-          )
-          .font(.system(size: 11))
-          .foregroundColor(.secondary)
+          Text("Monitoring (\(list.count) processes)")
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
         }
 
         Spacer()
-
-        Button(action: {
-          if viewModel.monitor.isMonitoring {
-            viewModel.monitor.stopMonitoring()
-          } else {
-            viewModel.monitor.startMonitoring()
-          }
-        }) {
-          Label(
-            viewModel.monitor.isMonitoring ? "Pause" : "Resume",
-            systemImage: viewModel.monitor.isMonitoring ? "pause.fill" : "play.fill"
-          )
-          .font(.system(size: 11))
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
 
         Button(action: {
           viewModel.monitor.sampleBandwidth()

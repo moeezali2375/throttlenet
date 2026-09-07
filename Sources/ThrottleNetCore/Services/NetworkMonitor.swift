@@ -29,12 +29,13 @@ public final class NetworkMonitor: ObservableObject {
     // Take immediate initial sample
     sampleBandwidth()
 
-    monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) {
-      [weak self] _ in
+    let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
       Task { @MainActor [weak self] in
         self?.sampleBandwidth()
       }
     }
+    RunLoop.main.add(timer, forMode: .common)
+    monitoringTimer = timer
   }
 
   public func stopMonitoring() {
