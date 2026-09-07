@@ -1,7 +1,25 @@
+# Swift / Xcode build artifacts
 .build/
 build/
-.DS_Store
-*.xcodeproj/
-xcuserdata/
 DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
 .swiftpm/
+
+# macOS system files
+.DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Distribution Archives
+*.zip
+*.dmg
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*~

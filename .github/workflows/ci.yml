@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (macOS)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Display Swift version
+        run: swift --version
+
+      - name: Build all targets (Debug)
+        run: swift build
+
+      - name: Run automated test suite
+        run: swift run ThrottleNetTestsRunner
+
+      - name: Build release app bundle
+        run: ./Scripts/build_app.sh
+
+      - name: Verify ThrottleNet.app bundle
+        run: |
+          test -d "build/ThrottleNet.app"
+          test -x "build/ThrottleNet.app/Contents/MacOS/ThrottleNet"
+          test -f "build/ThrottleNet.app/Contents/Info.plist"
+          echo "✅ ThrottleNet.app verified successfully!"
