@@ -90,7 +90,17 @@ public final class TrafficShaper {
   }
 
   /// Resets all active throttles and flushes all dummynet pipes and pf anchors/states.
-  public func resetAll() async throws {
+  /// If `deletePersistentRules` is true (default), all saved auto-rules are also cleared.
+  public func resetAll(deletePersistentRules: Bool = true) async throws {
+    if deletePersistentRules {
+      PersistentRuleStore.shared.deleteAllRules()
+    }
+
+    queue.sync {
+      activeThrottles.removeAll()
+      lastConfiguredPorts.removeAll()
+    }
+
     let commands = [
       "/sbin/pfctl -a \(anchorName) -F all 2>/dev/null || true",
       "/usr/sbin/dnctl -q flush 2>/dev/null || true",

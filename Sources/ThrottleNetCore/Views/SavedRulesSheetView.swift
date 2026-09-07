@@ -15,6 +15,15 @@ public struct SavedRulesSheetView: View {
 
         Spacer()
 
+        if !ruleStore.rules.isEmpty {
+          Button("Clear All") {
+            viewModel.resetAllThrottles(deletePersistentRules: true)
+          }
+          .buttonStyle(.plain)
+          .foregroundColor(.red)
+          .font(.system(size: 11, weight: .medium))
+        }
+
         Button("Done") {
           viewModel.isShowingSavedRulesSheet = false
         }
@@ -100,7 +109,7 @@ public struct SavedRulesSheetView: View {
                 "",
                 isOn: Binding(
                   get: { rule.isEnabled },
-                  set: { _ in ruleStore.toggleRule(id: rule.id) }
+                  set: { _ in viewModel.toggleRuleInStore(rule) }
                 )
               )
               .toggleStyle(.switch)
@@ -108,7 +117,7 @@ public struct SavedRulesSheetView: View {
 
               // Delete Button
               Button(action: {
-                ruleStore.deleteRule(id: rule.id)
+                viewModel.deleteRuleFromStore(rule)
               }) {
                 Image(systemName: "trash")
                   .foregroundColor(.secondary)

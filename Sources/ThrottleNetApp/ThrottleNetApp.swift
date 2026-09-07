@@ -26,8 +26,10 @@ struct ThrottleNetApp: App {
         Divider()
 
         Button("Reset All Throttles") {
+          monitor.clearAllThrottlesLocally()
+          PersistentRuleStore.shared.deleteAllRules()
           Task {
-            try? await TrafficShaper.shared.resetAll()
+            try? await TrafficShaper.shared.resetAll(deletePersistentRules: false)
             monitor.sampleBandwidth()
           }
         }
@@ -64,8 +66,10 @@ struct ThrottleNetApp: App {
 
         if totals.throttledProcessesCount > 0 {
           Button("Reset All Limits") {
+            monitor.clearAllThrottlesLocally()
+            PersistentRuleStore.shared.deleteAllRules()
             Task {
-              try? await TrafficShaper.shared.resetAll()
+              try? await TrafficShaper.shared.resetAll(deletePersistentRules: false)
               monitor.sampleBandwidth()
             }
           }

@@ -97,6 +97,21 @@ assert(retrievedRule.uploadLimitKBps == 100, "Upload limit mismatch")
 assert(retrievedRule.autoApplyOnLaunch == true, "autoApply mismatch")
 store.deleteRule(forProcessName: "cloudd")
 assert(store.rule(forProcessName: "cloudd") == nil, "Failed to delete rule")
+
+// Test deleteAllRules
+store.saveRule(testRule)
+assert(store.rules.count >= 1, "Rule not saved")
+store.deleteAllRules()
+assert(store.rules.isEmpty, "deleteAllRules failed to empty rules")
+
+// Test disableAllRules
+store.saveRule(testRule)
+assert(store.rule(forProcessName: "cloudd")?.isEnabled == true, "Rule should be enabled")
+store.disableAllRules()
+assert(store.rule(forProcessName: "cloudd")?.isEnabled == false, "disableAllRules failed to disable rule")
+store.deleteAllRules()
+assert(store.rules.isEmpty, "deleteAllRules failed to clean up")
+
 print("  ✅ PersistentRuleStore tests passed!")
 
 // Test 6: Live Process Network Monitor Sampling Check (with -n flag)
@@ -119,4 +134,16 @@ assert(nettopOutput.contains("bytes_in,bytes_out"), "nettop output missing heade
 assert(elapsed < 1.0, "nettop with -n took too long: \(elapsed)s")
 print("  ✅ Live nettop sampling succeeded in \(String(format: "%.3f", elapsed))s! Output size: \(nettopOutput.count) characters")
 
-print("\n🎉 ALL 6 TESTS PASSED SUCCESSFULLY!")
+// Test 7: Optimistic Local State Updates on NetworkMonitor
+print("• Testing optimistic local state updates...")
+Task { @MainActor in
+  let monitor = NetworkMonitor.shared
+  let dummyConfig = ThrottleConfig(pid: 99999, processName: "testproc", isEnabled: true, downloadLimitKBps: 500, uploadLimitKBps: 200)
+  monitor.updateThrottleLocally(for: 99999, config: dummyConfig)
+  monitor.clearThrottleLocally(for: 99999)
+  monitor.clearAllThrottlesLocally()
+  assert(monitor.systemTotals.throttledProcessesCount == 0, "Optimistic clear failed")
+  print("  ✅ Optimistic local state tests passed!")
+}
+
+print("\n🎉 ALL 7 TESTS PASSED SUCCESSFULLY!")

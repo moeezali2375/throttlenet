@@ -56,12 +56,43 @@ public final class PersistentRuleStore: ObservableObject {
     }
   }
 
+  public func deleteAllRules() {
+    let clearBlock = {
+      self.rules.removeAll()
+      self.persist()
+    }
+    if Thread.isMainThread {
+      clearBlock()
+    } else {
+      DispatchQueue.main.sync {
+        clearBlock()
+      }
+    }
+  }
+
+  public func disableAllRules() {
+    let disableBlock = {
+      for i in 0..<self.rules.count {
+        self.rules[i].isEnabled = false
+      }
+      self.persist()
+    }
+    if Thread.isMainThread {
+      disableBlock()
+    } else {
+      DispatchQueue.main.sync {
+        disableBlock()
+      }
+    }
+  }
+
   private func persist() {
     let currentRules = self.rules
     queue.async { [weak self] in
       guard let self = self else { return }
       if let data = try? JSONEncoder().encode(currentRules) {
         UserDefaults.standard.set(data, forKey: self.userDefaultsKey)
+        UserDefaults.standard.synchronize()
       }
     }
   }

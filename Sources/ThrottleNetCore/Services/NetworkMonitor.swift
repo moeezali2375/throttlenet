@@ -43,6 +43,36 @@ public final class NetworkMonitor: ObservableObject {
     isMonitoring = false
   }
 
+  public func clearAllThrottlesLocally() {
+    for i in 0..<processes.count {
+      processes[i].throttleConfig = nil
+      processes[i].persistentRule = nil
+    }
+    systemTotals.throttledProcessesCount = 0
+  }
+
+  public func clearThrottleLocally(for pid: pid_t) {
+    if let idx = processes.firstIndex(where: { $0.pid == pid }) {
+      processes[idx].throttleConfig = nil
+      processes[idx].persistentRule = nil
+    }
+    systemTotals.throttledProcessesCount = processes.filter { $0.isThrottled }.count
+  }
+
+  public func updateThrottleLocally(
+    for pid: pid_t,
+    config: ThrottleConfig,
+    persistentRule: PersistentRule? = nil
+  ) {
+    if let idx = processes.firstIndex(where: { $0.pid == pid }) {
+      processes[idx].throttleConfig = config
+      if let rule = persistentRule {
+        processes[idx].persistentRule = rule
+      }
+    }
+    systemTotals.throttledProcessesCount = processes.filter { $0.isThrottled }.count
+  }
+
   public func sampleBandwidth() {
     guard !isSampling else { return }
     isSampling = true

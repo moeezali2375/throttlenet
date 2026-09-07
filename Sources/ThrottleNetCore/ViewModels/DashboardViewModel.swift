@@ -126,8 +126,9 @@ public final class DashboardViewModel: ObservableObject {
   ) {
     isPerformingAction = true
 
+    var rule: PersistentRule? = nil
     if saveAsPersistentRule {
-      let rule = PersistentRule(
+      let r = PersistentRule(
         processName: process.rawName,
         bundleIdentifier: process.bundleIdentifier,
         displayName: process.displayName,
@@ -137,11 +138,25 @@ public final class DashboardViewModel: ObservableObject {
         autoApplyOnLaunch: true,
         lastAppliedAt: Date()
       )
-      ruleStore.saveRule(rule)
+      rule = r
+      ruleStore.saveRule(r)
     } else {
       // Remove persistent rule if user explicitly unchecks remember
       ruleStore.deleteRule(forProcessName: process.rawName)
     }
+
+    // Optimistically update UI immediately
+    let optimisticConfig = ThrottleConfig(
+      pid: process.pid,
+      processName: process.rawName,
+      isEnabled: true,
+      downloadLimitKBps: downloadLimitKBps,
+      uploadLimitKBps: uploadLimitKBps,
+      downloadPipeId: nil,
+      uploadPipeId: nil,
+      lastUpdated: Date()
+    )
+    monitor.updateThrottleLocally(for: process.pid, config: optimisticConfig, persistentRule: rule)
 
     Task {
       do {
@@ -180,6 +195,9 @@ public final class DashboardViewModel: ObservableObject {
       ruleStore.deleteRule(forProcessName: process.rawName)
     }
 
+    // Optimistically update UI immediately
+    monitor.clearThrottleLocally(for: process.pid)
+
     Task {
       do {
         try await TrafficShaper.shared.removeThrottle(for: process.pid)
@@ -197,11 +215,18 @@ public final class DashboardViewModel: ObservableObject {
     }
   }
 
-  public func resetAllThrottles() {
+  public func resetAllThrottles(deletePersistentRules: Bool = true) {
     isPerformingAction = true
+    if deletePersistentRules {
+      ruleStore.deleteAllRules()
+    }
+
+    // Optimistically update UI immediately
+    monitor.clearAllThrottlesLocally()
+
     Task {
       do {
-        try await TrafficShaper.shared.resetAll()
+        try await TrafficShaper.shared.resetAll(deletePersistentRules: false)
         await MainActor.run {
           self.monitor.sampleBandwidth()
           self.isPerformingAction = false
@@ -211,6 +236,44 @@ public final class DashboardViewModel: ObservableObject {
           self.errorMessage = error.localizedDescription
           self.isShowingErrorAlert = true
           self.isPerformingAction = false
+        }
+      }
+    }
+  }
+
+  public func deleteRuleFromStore(_ rule: PersistentRule) {
+    ruleStore.deleteRule(id: rule.id)
+    for proc in monitor.processes where proc.rawName.lowercased() == rule.processName.lowercased() && proc.isThrottled {
+      removeThrottle(for: proc, deletePersistentRule: false)
+    }
+  }
+
+  public func toggleRuleInStore(_ rule: PersistentRule) {
+    ruleStore.toggleRule(id: rule.id)
+    let updatedRule = ruleStore.rule(forProcessName: rule.processName, bundleId: rule.bundleIdentifier)
+    let isNowEnabled = updatedRule?.isEnabled ?? false
+
+    if !isNowEnabled {
+      for proc in monitor.processes where proc.rawName.lowercased() == rule.processName.lowercased() && proc.isThrottled {
+        Task {
+          try? await TrafficShaper.shared.removeThrottle(for: proc.pid)
+          await MainActor.run {
+            self.monitor.sampleBandwidth()
+          }
+        }
+      }
+    } else {
+      for proc in monitor.processes where proc.rawName.lowercased() == rule.processName.lowercased() && !proc.isThrottled {
+        Task {
+          try? await TrafficShaper.shared.applyThrottle(
+            for: proc.pid,
+            processName: proc.rawName,
+            downloadLimitKBps: rule.downloadLimitKBps,
+            uploadLimitKBps: rule.uploadLimitKBps
+          )
+          await MainActor.run {
+            self.monitor.sampleBandwidth()
+          }
         }
       }
     }
